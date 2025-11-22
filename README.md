@@ -1,0 +1,2 @@
+# StockMaster
+for odoo kackathon
