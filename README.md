@@ -42,9 +42,13 @@ Internal Transfer: Log the movement of stock between locations (e.g., Warehouse 
 
 Stock Adjustment: Correct inventory discrepancies (physical count vs. recorded stock). (Stock increases or decreases based on type).
 
+
 4. Move History
 
 Provides a complete, searchable ledger of all inventory transactions ("Moves"):
 
 Each entry logs the date, product, move type, quantity change, source/target location, and the user who validated the move.
 
+
+**Proof of concept:**
+https://drive.google.com/drive/folders/1zkjux_M9Lp9OLUTQX6BbqiFnJ5PzW7Ww?usp=sharing
