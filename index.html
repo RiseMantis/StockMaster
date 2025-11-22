@@ -1,0 +1,983 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Warehouse Management System (Local Demo)</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Use Inter font -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary-purple: #6366f1; /* Tailwind's indigo-500/violet-500 approximation */
+            --light-purple: #8b5cf6; /* Tailwind's violet-500 */
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f5f7fa;
+        }
+        .app-shadow {
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.06);
+        }
+        .header-shadow {
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+        }
+        .nav-link {
+            padding: 0.5rem 1rem;
+            cursor: pointer;
+            border-radius: 0.5rem;
+            transition: all 0.2s;
+            color: #6b7280;
+            font-weight: 500;
+        }
+        .nav-link:hover {
+            color: #1f2937;
+            background-color: #f3f4f6;
+        }
+        .nav-link.active {
+            background-color: #f0f1ff;
+            color: var(--primary-purple);
+        }
+        .table-cell-editable:hover {
+            background-color: #f0f1ff;
+            cursor: pointer;
+            outline: 2px solid var(--primary-purple);
+        }
+        .table-row-hover:hover {
+            background-color: #f9fafb;
+            cursor: pointer;
+        }
+        .modal {
+            transition: opacity 0.3s ease-in-out;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Main application container -->
+    <div id="app" class="min-h-screen">
+        <div id="loading-overlay" class="fixed inset-0 bg-gray-100/70 backdrop-blur-sm flex items-center justify-center z-[100] text-gray-700 font-semibold">
+            Loading Demo Application...
+        </div>
+    </div>
+
+    <!-- Modals Container (Hidden by default) -->
+    <div id="modal-container"></div>
+
+
+    <script>
+        // --- 1. LOCAL DATA SETUP AND GLOBAL STATE ---
+        
+        // Mock data for initial load
+        const MOCK_DATA = {
+            userId: 'demo-user-123',
+            email: 'Demo User',
+            receipts: [
+                { id: 'REC-001', ref: 'IN/2025/001', from: 'Vendor A', to: 'WH/Stock1', contact: 'John Doe', date: '2025-11-20', status: 'Ready' },
+                { id: 'REC-002', ref: 'IN/2025/002', from: 'Vendor B', to: 'WH/Stock2', contact: 'Jane Smith', date: '2025-11-21', status: 'Waiting' },
+            ],
+            deliveries: [
+                { id: 'DEL-001', ref: 'OUT/2025/001', from: 'WH/Stock1', to: 'Customer X', contact: 'Alice', date: '2025-11-22', status: 'Waiting' },
+                { id: 'DEL-002', ref: 'OUT/2025/002', from: 'WH/Stock2', to: 'Customer Y', contact: 'Bob', date: '2025-11-23', status: 'Done' },
+            ],
+            stock: [
+                { id: 'PROD-100', product: 'Widget X', cost: '10.50', onHand: 500, free: 450 },
+                { id: 'PROD-101', product: 'Gadget Y', cost: '22.00', onHand: 120, free: 100 },
+            ],
+            moveHistory: [
+                { id: 'MOVE-001', ref: 'IN/2025/001', date: '2025-11-20', contact: 'John Doe', from: 'Vendor A', to: 'WH/Stock1', quantity: 50, status: 'Done' },
+                { id: 'MOVE-002', ref: 'OUT/2025/001', date: '2025-11-22', contact: 'Alice', from: 'WH/Stock1', to: 'Customer X', quantity: 10, status: 'Ready' },
+            ],
+            warehouses: [
+                { id: 'WH-001', name: 'Main Warehouse', shortCode: 'WH', address: '101 Tech Drive, Silicon Valley' },
+            ],
+            locations: [
+                { id: 'LOC-001', name: 'Shelf A1', shortCode: 'SRA', warehouse: 'Main Warehouse' },
+                { id: 'LOC-002', name: 'Bay B2', shortCode: 'BYB', warehouse: 'Main Warehouse' },
+            ],
+        };
+
+        const appContainer = document.getElementById('app');
+        const modalContainer = document.getElementById('modal-container');
+        const loadingOverlay = document.getElementById('loading-overlay');
+
+        // Initialize global state with mock data
+        let globalState = MOCK_DATA;
+
+        // Simple ID generator for new records
+        const generateId = (prefix) => {
+            return prefix + '-' + Math.random().toString(36).substring(2, 9).toUpperCase();
+        };
+
+        // --- Local Data CRUD Helper Functions (Synchronous) ---
+
+        /**
+         * Finds and updates a record in the local state, then re-renders.
+         * @param {string} collectionName - Key in globalState (e.g., 'receipts').
+         * @param {string} id - The ID of the record to update.
+         * @param {string} field - The key of the field to update.
+         * @param {any} value - The new value.
+         */
+        const updateRecord = (collectionName, id, field, value) => {
+            const collection = globalState[collectionName];
+            const index = collection.findIndex(item => item.id === id);
+            
+            if (index !== -1) {
+                // Type conversion for numbers
+                let typedValue = value;
+                if (['onHand', 'free', 'quantity', 'cost'].includes(field)) {
+                    typedValue = Number(value);
+                }
+                
+                collection[index] = { ...collection[index], [field]: typedValue };
+                router(); // Re-render to reflect changes
+                console.log(`Local update: ${collectionName} ${id} set ${field} to ${value}`);
+            }
+        };
+
+        /**
+         * Adds a new record to the local state, then re-renders.
+         * @param {string} collectionName - Key in globalState.
+         * @param {object} data - The new record data.
+         */
+        const addRecord = (collectionName, data) => {
+            const collection = globalState[collectionName];
+            const prefix = collectionName.slice(0, 3).toUpperCase();
+            
+            const newRecord = {
+                id: generateId(prefix),
+                ...data,
+                createdAt: new Date().toISOString(),
+                createdBy: globalState.userId,
+            };
+            
+            collection.unshift(newRecord); // Add to the start
+            router(); // Re-render
+            console.log(`Local add: new record added to ${collectionName}`);
+        };
+        
+        /**
+         * Deletes a record from the local state, then re-renders.
+         * @param {string} collectionName - Key in globalState.
+         * @param {string} id - The ID of the record to delete.
+         */
+        const deleteRecord = (collectionName, id) => {
+            globalState[collectionName] = globalState[collectionName].filter(item => item.id !== id);
+            router(); // Re-render
+            console.log(`Local delete: record ${id} removed from ${collectionName}`);
+        };
+
+
+        // --- 2. UI RENDERING UTILITIES ---
+
+        // Utility function to generate Lucide Icons as SVG strings
+        const getIcon = (name, className = 'w-5 h-5', strokeColor = 'currentColor') => {
+            const icons = {
+                'Dashboard': '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>',
+                'Operations': '<path d="M10 17H6a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2z"/><path d="M18 17h-2"/><path d="M22 17h-2"/><path d="M2 17h2"/><circle cx="7" cy="19" r="2"/><circle cx="17" cy="19" r="2"/><path d="M12 17V7"/><path d="M12 7h6a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2h-6"/>',
+                'Stock': '<path d="m7.5 4.27 9 5.15"/><path d="m21 12-9-5.15-9 5.15"/><path d="m7.5 19.73 9-5.15"/><path d="M3.29 16.71 12 21.85l8.71-5.14"/><path d="M12 16.5V7.5"/>',
+                'MoveHistory': '<path d="M3 12a9 9 0 1 0 9-9h1"/><path d="M12 7v5l3 3"/>',
+                'Settings': '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.05a2 2 0 0 1-2 2h-.05a2 2 0 0 0-2 2v.44a2 2 0 0 1-2 2H2v.44a2 2 0 0 0 2 2h.05a2 2 0 0 1 2 2v.05a2 2 0 0 0 2 2h.44a2 2 0 0 1 2 2v.05a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.05a2 2 0 0 1 2-2h.05a2 2 0 0 0 2-2v-.44a2 2 0 0 1 2-2h.05a2 2 0 0 0 2-2v-.44a2 2 0 0 0-2-2h-.05a2 2 0 0 1-2-2v-.05a2 2 0 0 0-2-2h-.44a2 2 0 0 0-2 2V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
+                'Receipts': '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.83L15.17 2z"/><path d="M15 2v6h6"/><path d="M10 11h4"/><path d="M10 15h4"/><path d="M10 19h4"/>',
+                'Deliveries': '<path d="m16 16 2 2 4-4"/><path d="M21 10V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l2-1.14"/><path d="M12 22v-8"/><path d="m15.5 14.5-3.5-2-3.5 2"/>',
+                'Warehouse': '<path d="M6 22V7H4v15"/><path d="M18 22V7h-2v15"/><path d="M22 22V7H11a2 2 0 0 0-2 2v13"/><path d="M15 2h-6a2 2 0 0 0-2 2v3h10V4a2 2 0 0 0-2-2z"/>',
+                'Location': '<path d="M12 12V3"/><circle cx="12" cy="17" r="2"/><path d="M12 17v4"/><path d="M12 12a7 7 0 1 0 0-14 7 7 0 0 0 0 14z"/>',
+                'Add': '<path d="M5 12h14"/><path d="M12 5v14"/>',
+                'Search': '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+                'List': '<line x1="8" x2="21" y1="6" y2="6"/><line x1="8" x2="21" y1="12" y2="12"/><line x1="8" x2="21" y1="18" y2="18"/><line x1="3" x2="3.01" y1="6" y2="6"/><line x1="3" x2="3.01" y1="12" y2="12"/><line x1="3" x2="3.01" y1="18" y2="18"/>',
+                'Grid': '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>',
+                'User': '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+                'Clock': '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+                'AlertTriangle': '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>',
+                'Package': '<path d="m7.5 4.27 9 5.15"/><path d="m21 12-9-5.15-9 5.15"/><path d="m7.5 19.73 9-5.15"/><path d="M3.29 16.71 12 21.85l8.71-5.14"/><path d="M12 16.5V7.5"/>',
+                'Deliveries': '<path d="m16 16 2 2 4-4"/><path d="M21 10V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l2-1.14"/><path d="M12 22v-8"/><path d="m15.5 14.5-3.5-2-3.5 2"/>',
+                'Trash': '<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
+                'X': '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+                'LogOut': '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/>',
+                'ChevronDown': '<path d="m6 9 6 6 6-6"/>',
+            };
+            return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${strokeColor}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-${name.toLowerCase().replace(/\s/g, '-') + ' ' + className}">${icons[name] || ''}</svg>`;
+        };
+
+        // Renders the main application layout (Header, Navbar, and Content area)
+        const renderAppLayout = (contentHTML, pageTitle, pageSubtitle = '') => {
+            const activePage = window.location.hash.split('/')[0];
+            const userNameDisplay = globalState.email.split('@')[0];
+
+            appContainer.innerHTML = `
+                <!-- Header/Navbar -->
+                <header class="bg-white sticky top-0 z-10 header-shadow">
+                    <nav class="container mx-auto px-4 sm:px-6 lg:px-8 py-3 flex justify-between items-center">
+                        <!-- Nav Links -->
+                        <div class="flex items-center space-x-2">
+                            ${navLinkHTML('Dashboard', '#dashboard', activePage)}
+                            ${dropdownNavLinkHTML('Operations', '#operations/receipts', activePage, [{name: 'Receipts', hash: '#operations/receipts'}, {name: 'Deliveries', hash: '#operations/deliveries'}])}
+                            ${navLinkHTML('Stock', '#stock', activePage)}
+                            ${navLinkHTML('Move History', '#move-history', activePage)}
+                            ${dropdownNavLinkHTML('Settings', '#settings/warehouse', activePage, [{name: 'Warehouse', hash: '#settings/warehouse'}, {name: 'Location', hash: '#settings/location'}])}
+                        </div>
+
+                        <!-- User Dropdown/Placeholder -->
+                        <div class="relative group">
+                            <div class="flex items-center space-x-2 p-2 rounded-xl text-gray-700 hover:bg-gray-100 transition duration-150">
+                                <div class="font-medium text-gray-600 hidden sm:block">${userNameDisplay} (Local Demo)</div>
+                                <div class="p-1 rounded-full bg-gray-200 text-gray-700">
+                                    ${getIcon('User', 'w-5 h-5')}
+                                </div>
+                            </div>
+                        </div>
+                    </nav>
+                </header>
+
+                <!-- Main Content Area -->
+                <main class="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                    <div id="page-content">
+                        <!-- Page Title and Subtitle -->
+                        <h1 class="text-3xl font-bold text-gray-800 mb-1">${pageTitle}</h1>
+                        ${pageSubtitle ? `<p class="text-gray-500 mb-6">${pageSubtitle}</p>` : `<div class="mb-6"></div>`}
+
+                        <!-- Dynamic Content -->
+                        ${contentHTML}
+                    </div>
+                </main>
+            `;
+
+            // Setup listeners after content is rendered
+            setupDropdowns();
+        };
+
+        const navLinkHTML = (text, href, activePage) => {
+            const isActive = href.includes(activePage);
+            const activeClass = isActive ? 'active' : '';
+            return `
+                <a href="${href}" class="nav-link flex items-center space-x-2 ${activeClass}">
+                    ${getIcon(text, 'w-5 h-5')}
+                    <span class="hidden sm:inline">${text}</span>
+                </a>
+            `;
+        };
+
+        const dropdownNavLinkHTML = (text, href, activePage, items) => {
+            const isActive = activePage.includes(text.toLowerCase());
+            const activeClass = isActive ? 'active' : '';
+
+            const dropdownItems = items.map(item => {
+                const isItemActive = window.location.hash === item.hash;
+                const itemActiveClass = isItemActive ? 'bg-indigo-50 text-indigo-700' : 'text-gray-700 hover:bg-gray-100';
+                return `
+                    <a href="${item.hash}" class="flex items-center px-4 py-2 text-sm rounded-lg transition-colors ${itemActiveClass}">
+                        ${getIcon(item.name, 'w-4 h-4 mr-3')}
+                        ${item.name}
+                    </a>
+                `;
+            }).join('');
+
+            return `
+                <div class="relative group">
+                    <button class="nav-link flex items-center space-x-2 ${activeClass}" id="${text.toLowerCase()}-dropdown-toggle">
+                        ${getIcon(text, 'w-5 h-5')}
+                        <span class="hidden sm:inline">${text}</span>
+                        ${getIcon('ChevronDown', 'w-4 h-4 text-gray-500')}
+                    </button>
+                    <!-- Dropdown Content -->
+                    <div class="absolute left-0 mt-3 w-48 bg-white border border-gray-200 rounded-lg app-shadow hidden transition-all duration-100 p-2 z-20" id="${text.toLowerCase()}-dropdown">
+                        ${dropdownItems}
+                    </div>
+                </div>
+            `;
+        };
+
+        const setupDropdowns = () => {
+            const dropdowns = [
+                { toggleId: 'operations-dropdown-toggle', menuId: 'operations-dropdown' },
+                { toggleId: 'settings-dropdown-toggle', menuId: 'settings-dropdown' },
+            ];
+
+            const hideAllDropdowns = (currentMenuId = null) => {
+                dropdowns.forEach(d => {
+                    const menu = document.getElementById(d.menuId);
+                    if (menu && d.menuId !== currentMenuId) {
+                        menu.classList.add('hidden');
+                    }
+                });
+            };
+
+            dropdowns.forEach(({ toggleId, menuId }) => {
+                const toggle = document.getElementById(toggleId);
+                const menu = document.getElementById(menuId);
+
+                if (toggle && menu) {
+                    toggle.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        hideAllDropdowns(menuId);
+                        menu.classList.toggle('hidden');
+                    });
+                }
+            });
+
+            document.addEventListener('click', (e) => {
+                hideAllDropdowns();
+            });
+        };
+
+        // Helper function for rendering editable table cells
+        const renderEditableCell = (value, id, key, collection) => {
+            const sanitisedValue = value !== undefined && value !== null ? String(value) : '';
+            return `<td
+                class="px-6 py-4 whitespace-nowrap text-sm text-gray-700 table-cell-editable"
+                contenteditable="true"
+                data-id="${id}"
+                data-key="${key}"
+                data-collection="${collection}"
+            >${sanitisedValue}</td>`;
+        };
+
+        // Helper function for rendering table rows
+        const renderTableRows = (data, fields, collection) => {
+            return data.map(item => {
+                const cols = fields.map(field => {
+                    let value = item[field.key];
+                    let badgeClass = '';
+
+                    if (field.key === 'status') {
+                        badgeClass = value === 'Ready' ? 'bg-green-100 text-green-700' : (value === 'Waiting' ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-700');
+                        return `<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            <span class="px-3 py-1 text-xs font-semibold rounded-full ${badgeClass}"
+                                data-id="${item.id}"
+                                data-key="status"
+                                data-collection="${collection}"
+                                onclick="showStatusModal(this)"
+                            >${value}</span>
+                        </td>`;
+                    }
+                    if (field.key === 'quantity') {
+                        const badgeClass = item.ref && item.ref.includes('IN') ? 'text-green-600' : 'text-red-600';
+                        value = `<span class="font-medium ${badgeClass}">${value}</span>`;
+                        return `<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${value}</td>`; // Quantity is not directly editable on this view
+                    }
+                    
+                    if (field.editable) {
+                        return renderEditableCell(value, item.id, field.key, collection);
+                    }
+                    
+                    return `<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${value !== undefined && value !== null ? value : ''}</td>`;
+                }).join('');
+
+                const deleteButton = `<button data-id="${item.id}" data-collection="${collection}" onclick="handleDeleteRecord(this)" class="text-red-600 hover:text-red-900 p-2 rounded-full hover:bg-red-50 transition duration-150">${getIcon('Trash', 'w-4 h-4', 'currentColor')}</button>`;
+
+                return `<tr class="table-row-hover rounded-xl">${cols}<td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">${deleteButton}</td></tr>`;
+            }).join('');
+        };
+
+        // Reusable HTML for New/Search/View Toggle on list pages
+        const tableControlsHTML = (hash, pageName, collection, showToggle = true) => {
+            return `
+                <div class="flex flex-col md:flex-row justify-between items-start md:items-center">
+                    <div class="flex items-center mb-4 md:mb-0">
+                        <button onclick="showCreationModal('${collection}')" class="flex items-center text-white font-semibold py-2 px-4 rounded-xl transition duration-150 mr-4 nav-link-purple" style="background-color: var(--light-purple);">
+                            ${getIcon('Add', 'w-5 h-5 mr-2')}
+                            NEW
+                        </button>
+                    </div>
+
+                    <div class="flex items-center space-x-3 w-full md:w-auto">
+                        <div class="relative flex-grow">
+                            <input type="text" placeholder="Search by reference or contact (Demo Only)..." class="px-4 py-2 border border-gray-300 rounded-xl focus:outline-none focus:ring-violet-500 focus:border-violet-500 w-full md:w-64" disabled />
+                            <span class="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400">${getIcon('Search', 'w-5 h-5')}</span>
+                        </div>
+                        ${showToggle ? `
+                            <div class="flex space-x-1 p-1 bg-gray-100 rounded-xl">
+                                <button class="p-2 rounded-xl bg-white text-gray-800 app-shadow">${getIcon('List', 'w-5 h-5')}</button>
+                                <button class="p-2 rounded-xl text-gray-500 hover:bg-white">${getIcon('Grid', 'w-5 h-5')}</button>
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+        };
+
+
+        // --- 3. PAGE CONTENT FUNCTIONS ---
+
+        // Dashboard Page
+        const renderDashboardPage = () => {
+            // Count data from globalState for dashboard display
+            const readyReceipts = globalState.receipts.filter(r => r.status === 'Ready').length;
+            const waitingDeliveries = globalState.deliveries.filter(d => d.status === 'Waiting').length;
+
+            const content = `
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <!-- Receipt Card -->
+                    <div class="bg-white p-6 rounded-xl app-shadow border border-gray-200">
+                        <div class="flex items-center text-indigo-700 mb-6">
+                            ${getIcon('Receipts', 'w-6 h-6 mr-2')}
+                            <h2 class="text-xl font-semibold">Receipts</h2>
+                        </div>
+                        <div class="space-y-4">
+                            <!-- Late/Placeholder -->
+                            <div class="p-4 rounded-xl border border-yellow-200 bg-yellow-50 flex items-center text-yellow-700 font-medium">
+                                ${getIcon('Clock', 'w-5 h-5 mr-3')}
+                                <span>0 Late (Placeholder)</span>
+                            </div>
+                            <!-- Total Operations -->
+                            <div class="p-4 rounded-xl border border-gray-200 bg-white flex items-center text-gray-700 font-medium">
+                                ${getIcon('Operations', 'w-5 h-5 mr-3')}
+                                <span>${globalState.receipts.length} Total Operations</span>
+                            </div>
+                            <!-- To Receive Button -->
+                            <a href="#operations/receipts" class="block w-full text-center text-white font-semibold py-3 rounded-xl transition duration-150 nav-link-purple" style="background-color: var(--light-purple);">
+                                ${readyReceipts} to Receive
+                            </a>
+                        </div>
+                    </div>
+
+                    <!-- Delivery Card -->
+                    <div class="bg-white p-6 rounded-xl app-shadow border border-gray-200">
+                        <div class="flex items-center text-green-700 mb-6">
+                            ${getIcon('Deliveries', 'w-6 h-6 mr-2')}
+                            <h2 class="text-xl font-semibold">Deliveries</h2>
+                        </div>
+                        <div class="space-y-4">
+                            <!-- Waiting -->
+                            <div class="p-4 rounded-xl border border-blue-200 bg-blue-50 flex items-center text-blue-700 font-medium">
+                                ${getIcon('AlertTriangle', 'w-5 h-5 mr-3')}
+                                <span>${waitingDeliveries} Waiting</span>
+                            </div>
+                            <!-- Total Operations -->
+                            <div class="p-4 rounded-xl border border-gray-200 bg-white flex items-center text-gray-700 font-medium">
+                                ${getIcon('Operations', 'w-5 h-5 mr-3')}
+                                <span>${globalState.deliveries.length} Total Operations</span>
+                            </div>
+                            <!-- To Deliver Button -->
+                            <a href="#operations/deliveries" class="block w-full text-center text-white font-semibold py-3 rounded-xl transition duration-150 bg-green-600 hover:bg-green-700">
+                                ${waitingDeliveries} to Deliver
+                            </a>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-8 p-4 bg-blue-100 border border-blue-300 text-blue-800 rounded-xl">
+                    <p class="font-semibold">Local Demo Note:</p>
+                    <p class="text-sm">All data is stored locally in your browser's memory and will be reset if the page is reloaded or closed.</p>
+                </div>
+            `;
+            renderAppLayout(content, 'Dashboard', 'Overview of warehouse operations');
+        };
+
+        // Receipts Page
+        const renderReceiptsPage = () => {
+            const collection = 'receipts';
+            const tableFields = [
+                { key: 'ref', title: 'Reference', editable: true },
+                { key: 'from', title: 'From', editable: true },
+                { key: 'to', title: 'To', editable: true },
+                { key: 'contact', title: 'Contact', editable: true },
+                { key: 'date', title: 'Schedule Date', editable: true },
+                { key: 'status', title: 'Status', editable: false }, // Status updated via modal/badge click
+            ];
+            const tableRows = renderTableRows(globalState.receipts, tableFields, collection);
+
+            const content = `
+                ${tableControlsHTML('#operations/receipts', 'Receipts', collection)}
+
+                <div class="bg-white rounded-xl app-shadow overflow-hidden mt-6">
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    ${tableFields.map(f => `<th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${f.title}</th>`).join('')}
+                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="receipts-table-body" class="divide-y divide-gray-200">
+                                ${tableRows}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                ${addTableEditListeners(collection)}
+            `;
+            renderAppLayout(content, 'Receipts');
+        };
+
+        // Deliveries Page
+        const renderDeliveriesPage = () => {
+            const collection = 'deliveries';
+            const tableFields = [
+                { key: 'ref', title: 'Reference', editable: true },
+                { key: 'from', title: 'From', editable: true },
+                { key: 'to', title: 'To', editable: true },
+                { key: 'contact', title: 'Contact', editable: true },
+                { key: 'date', title: 'Schedule Date', editable: true },
+                { key: 'status', title: 'Status', editable: false },
+            ];
+            const tableRows = renderTableRows(globalState.deliveries, tableFields, collection);
+
+            const content = `
+                ${tableControlsHTML('#operations/deliveries', 'Deliveries', collection)}
+
+                <div class="bg-white rounded-xl app-shadow overflow-hidden mt-6">
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    ${tableFields.map(f => `<th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${f.title}</th>`).join('')}
+                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="deliveries-table-body" class="divide-y divide-gray-200">
+                                ${tableRows}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                ${addTableEditListeners(collection)}
+            `;
+            renderAppLayout(content, 'Deliveries');
+        };
+
+        // Stock Page
+        const renderStockPage = () => {
+            const collection = 'stock';
+            const tableFields = [
+                { key: 'product', title: 'Product', editable: true },
+                { key: 'cost', title: 'Per Unit Cost', editable: true },
+                { key: 'onHand', title: 'On Hand', editable: true },
+                { key: 'free', title: 'Free to Use', editable: true },
+            ];
+
+            const tableRows = renderTableRows(globalState.stock, tableFields, collection);
+
+            const content = `
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
+                    <button onclick="showCreationModal('${collection}')" class="flex items-center text-white font-semibold py-2 px-4 rounded-xl transition duration-150 mr-4 nav-link-purple" style="background-color: var(--light-purple);">
+                        ${getIcon('Add', 'w-5 h-5 mr-2')}
+                        NEW Product
+                    </button>
+                    <div class="relative flex-grow w-full sm:w-auto mt-4 sm:mt-0">
+                        <input type="text" placeholder="Search products (Demo Only)..." class="px-4 py-2 border border-gray-300 rounded-xl focus:outline-none focus:ring-violet-500 focus:border-violet-500 w-full sm:w-64" disabled />
+                        <span class="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400">${getIcon('Search', 'w-5 h-5')}</span>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-xl app-shadow overflow-hidden mt-6">
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    ${tableFields.map(f => `<th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${f.title}</th>`).join('')}
+                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="stock-table-body" class="divide-y divide-gray-200">
+                                ${tableRows}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                ${addTableEditListeners(collection)}
+            `;
+            renderAppLayout(content, 'Stock', 'Manage product inventory');
+        };
+        
+        // Move History Page
+        const renderMoveHistoryPage = () => {
+            const collection = 'moveHistory';
+            const tableFields = [
+                { key: 'ref', title: 'Reference', editable: true },
+                { key: 'date', title: 'Date', editable: true },
+                { key: 'contact', title: 'Contact', editable: true },
+                { key: 'from', title: 'From', editable: true },
+                { key: 'to', title: 'To', editable: true },
+                { key: 'quantity', title: 'Quantity', editable: false },
+                { key: 'status', title: 'Status', editable: false },
+            ];
+            const tableRows = renderTableRows(globalState.moveHistory, tableFields, collection);
+
+            const content = `
+                ${tableControlsHTML('#move-history', 'Move History', collection, false)}
+
+                <div class="bg-white rounded-xl app-shadow overflow-hidden mt-6">
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    ${tableFields.map(f => `<th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${f.title}</th>`).join('')}
+                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="moveHistory-table-body" class="divide-y divide-gray-200">
+                                ${tableRows}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                ${addTableEditListeners(collection)}
+            `;
+            renderAppLayout(content, 'Move History');
+        };
+
+        // Warehouse Page
+        const renderWarehousePage = () => {
+            const collection = 'warehouses';
+            const existingWarehousesHTML = globalState.warehouses.map(wh => `
+                <div class="bg-white p-5 rounded-xl app-shadow border border-gray-200 group">
+                    <div class="flex justify-between items-center">
+                        <h3 class="text-lg font-semibold text-gray-800 table-cell-editable" contenteditable="true" data-id="${wh.id}" data-key="name" data-collection="${collection}">${wh.name}</h3>
+                        <div class="flex items-center space-x-2">
+                             <span class="px-3 py-1 text-xs font-semibold rounded-full bg-indigo-100 text-indigo-700 table-cell-editable" contenteditable="true" data-id="${wh.id}" data-key="shortCode" data-collection="${collection}">${wh.shortCode}</span>
+                             <button data-id="${wh.id}" data-collection="${collection}" onclick="handleDeleteRecord(this)" class="text-red-600 hover:text-red-900 p-1 rounded-full hover:bg-red-50 transition duration-150">${getIcon('Trash', 'w-4 h-4', 'currentColor')}</button>
+                        </div>
+                    </div>
+                    <p class="text-sm text-gray-500 mt-1 table-cell-editable" contenteditable="true" data-id="${wh.id}" data-key="address" data-collection="${collection}">${wh.address}</p>
+                </div>
+            `).join('');
+
+            const content = `
+                <div class="flex items-center text-gray-700 mb-6">
+                    ${getIcon('Warehouse', 'w-6 h-6 mr-3')}
+                    <h1 class="text-xl font-bold">Warehouse</h1>
+                </div>
+                <p class="text-gray-500 mb-8">Manage warehouse locations</p>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <!-- Add New Warehouse -->
+                    <div class="bg-white p-6 rounded-xl app-shadow border border-gray-200">
+                        <h2 class="text-xl font-semibold text-gray-800 mb-4">Add New Warehouse</h2>
+                        <form id="new-warehouse-form" onsubmit="event.preventDefault(); handleNewWarehouse(event);">
+                            <label class="block mb-4">
+                                <span class="text-sm font-medium text-gray-700">Name:</span>
+                                <input type="text" id="wh-name" placeholder="Enter warehouse name" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-violet-500 focus:border-violet-500" required>
+                            </label>
+                            <label class="block mb-4">
+                                <span class="text-sm font-medium text-gray-700">Short Code:</span>
+                                <input type="text" id="wh-shortCode" placeholder="Enter short code (e.g., WH)" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-violet-500 focus:border-violet-500" required>
+                            </label>
+                            <label class="block mb-6">
+                                <span class="text-sm font-medium text-gray-700">Address:</span>
+                                <textarea id="wh-address" placeholder="Enter warehouse address" rows="3" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-violet-500 focus:border-violet-500" required></textarea>
+                            </label>
+                            <button type="submit" class="w-full text-white font-semibold py-3 px-4 rounded-xl transition duration-150 nav-link-purple" style="background-color: var(--light-purple);">
+                                + Add Warehouse
+                            </button>
+                        </form>
+                    </div>
+
+                    <!-- Existing Warehouses -->
+                    <div class="space-y-4">
+                        <h2 class="text-xl font-semibold text-gray-800 mb-4">Existing Warehouses (${globalState.warehouses.length})</h2>
+                        ${existingWarehousesHTML}
+                    </div>
+                </div>
+                ${addTableEditListeners(collection)}
+            `;
+            renderAppLayout(content, 'Settings');
+        };
+
+        // Location Page
+        const renderLocationPage = () => {
+            const collection = 'locations';
+            const existingLocationsHTML = globalState.locations.map(loc => `
+                <div class="bg-white p-5 rounded-xl app-shadow border border-gray-200 group">
+                    <div class="flex justify-between items-center">
+                        <h3 class="text-lg font-semibold text-gray-800 table-cell-editable" contenteditable="true" data-id="${loc.id}" data-key="name" data-collection="${collection}">${loc.name}</h3>
+                        <div class="flex items-center space-x-2">
+                             <span class="px-3 py-1 text-xs font-semibold rounded-full bg-indigo-100 text-indigo-700 table-cell-editable" contenteditable="true" data-id="${loc.id}" data-key="shortCode" data-collection="${collection}">${loc.shortCode}</span>
+                             <button data-id="${loc.id}" data-collection="${collection}" onclick="handleDeleteRecord(this)" class="text-red-600 hover:text-red-900 p-1 rounded-full hover:bg-red-50 transition duration-150">${getIcon('Trash', 'w-4 h-4', 'currentColor')}</button>
+                        </div>
+                    </div>
+                    <p class="text-sm text-gray-500 mt-1">Warehouse: <span class="font-medium">${loc.warehouse}</span></p>
+                </div>
+            `).join('');
+
+            const warehouseOptions = globalState.warehouses.map(wh => `<option value="${wh.name}">${wh.name}</option>`).join('');
+
+            const content = `
+                <div class="flex items-center text-gray-700 mb-6">
+                    ${getIcon('Location', 'w-6 h-6 mr-3')}
+                    <h1 class="text-xl font-bold">Location</h1>
+                </div>
+                <p class="text-gray-500 mb-8">Manage storage locations within warehouses</p>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <!-- Add New Location -->
+                    <div class="bg-white p-6 rounded-xl app-shadow border border-gray-200">
+                        <h2 class="text-xl font-semibold text-gray-800 mb-4">Add New Location</h2>
+                        <form id="new-location-form" onsubmit="event.preventDefault(); handleNewLocation(event);">
+                            <label class="block mb-4">
+                                <span class="text-sm font-medium text-gray-700">Name:</span>
+                                <input type="text" id="loc-name" placeholder="Enter location name" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-violet-500 focus:border-violet-500" required>
+                            </label>
+                            <label class="block mb-4">
+                                <span class="text-sm font-medium text-gray-700">Short Code:</span>
+                                <input type="text" id="loc-shortCode" placeholder="Enter short code (e.g., SRA)" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-violet-500 focus:border-violet-500" required>
+                            </label>
+                            <label class="block mb-6">
+                                <span class="text-sm font-medium text-gray-700">Warehouse:</span>
+                                <select id="loc-warehouse" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-violet-500 focus:border-violet-500" required>
+                                    <option value="">Select warehouse</option>
+                                    ${warehouseOptions}
+                                </select>
+                            </label>
+                            <button type="submit" class="w-full text-white font-semibold py-3 px-4 rounded-xl transition duration-150 nav-link-purple" style="background-color: var(--light-purple);">
+                                + Add Location
+                            </button>
+                        </form>
+                    </div>
+
+                    <!-- Existing Locations -->
+                    <div class="space-y-4">
+                        <h2 class="text-xl font-semibold text-gray-800 mb-4">Existing Locations (${globalState.locations.length})</h2>
+                        ${existingLocationsHTML}
+                    </div>
+                </div>
+                ${addTableEditListeners(collection)}
+            `;
+            renderAppLayout(content, 'Settings');
+        };
+
+
+        // --- 4. LOCAL DATA HANDLERS (New, Edit, Delete) ---
+
+        // Attach listeners for editable cells on a specific collection
+        const addTableEditListeners = (collection) => {
+            // Wait for next tick to ensure elements are in the DOM
+            setTimeout(() => {
+                document.querySelectorAll(`[data-collection="${collection}"].table-cell-editable`).forEach(cell => {
+                    cell.addEventListener('blur', (e) => {
+                        const id = e.target.dataset.id;
+                        const key = e.target.dataset.key;
+                        const value = e.target.textContent.trim();
+                        updateRecord(collection, id, key, value);
+                    });
+                });
+            }, 0);
+            return ''; // Empty string so it doesn't pollute contentHTML
+        };
+
+        // Deletes a document
+        window.handleDeleteRecord = (el) => {
+            const id = el.dataset.id;
+            const collection = el.dataset.collection;
+            // IMPORTANT: Since we cannot use confirm(), we'll use a simple console log for this demo, 
+            // but in a real app, this should be a custom modal UI.
+            if (confirm(`Are you sure you want to delete this local record (${id}) from ${collection}?`)) { 
+                deleteRecord(collection, id);
+            }
+        };
+
+        // Warehouse Creation Form Handler
+        window.handleNewWarehouse = (e) => {
+            e.preventDefault();
+            const form = e.target;
+            const newWarehouse = {
+                name: document.getElementById('wh-name').value,
+                shortCode: document.getElementById('wh-shortCode').value,
+                address: document.getElementById('wh-address').value,
+            };
+            addRecord('warehouses', newWarehouse);
+            form.reset();
+        };
+
+        // Location Creation Form Handler
+        window.handleNewLocation = (e) => {
+            e.preventDefault();
+            const form = e.target;
+            const newLocation = {
+                name: document.getElementById('loc-name').value,
+                shortCode: document.getElementById('loc-shortCode').value,
+                warehouse: document.getElementById('loc-warehouse').value,
+            };
+            addRecord('locations', newLocation);
+            form.reset();
+        };
+
+        // General Modal and Status Update Logic
+        window.showCreationModal = (collection) => {
+            let title = `New ${collection.charAt(0).toUpperCase() + collection.slice(1)}`;
+            let fields = [];
+            let submitHandler = `handleNewGenericRecord(event, '${collection}')`;
+            let initialState = { ref: `WH/${collection.toUpperCase().slice(0, 3)}/AUTO`, from: 'vendor', to: 'WH/Stock1', contact: 'New Contact', date: new Date().toISOString().slice(0, 10), status: 'Ready', product: 'New Product', cost: '0', onHand: 0, free: 0, quantity: 1 };
+            
+            // Define fields based on collection
+            if (collection === 'receipts' || collection === 'deliveries') {
+                fields = [
+                    { key: 'ref', label: 'Reference', type: 'text', value: initialState.ref },
+                    { key: 'from', label: 'From Location', type: 'text', value: initialState.from },
+                    { key: 'to', label: 'To Location', type: 'text', value: initialState.to },
+                    { key: 'contact', label: 'Contact/Vendor', type: 'text', value: initialState.contact },
+                    { key: 'date', label: 'Schedule Date', type: 'date', value: initialState.date },
+                    { key: 'status', label: 'Initial Status', type: 'select', options: ['Ready', 'Waiting', 'Done'], value: 'Ready' }
+                ];
+            } else if (collection === 'stock') {
+                fields = [
+                    { key: 'product', label: 'Product Name', type: 'text', value: initialState.product },
+                    { key: 'cost', label: 'Per Unit Cost', type: 'text', value: initialState.cost },
+                    { key: 'onHand', label: 'On Hand', type: 'number', value: initialState.onHand },
+                    { key: 'free', label: 'Free to Use', type: 'number', value: initialState.free }
+                ];
+            } else if (collection === 'moveHistory') {
+                 fields = [
+                    { key: 'ref', label: 'Reference', type: 'text', value: initialState.ref },
+                    { key: 'date', label: 'Date', type: 'date', value: initialState.date },
+                    { key: 'contact', label: 'Contact', type: 'text', value: initialState.contact },
+                    { key: 'from', label: 'From Location', type: 'text', value: initialState.from },
+                    { key: 'to', label: 'To Location', type: 'text', value: initialState.to },
+                    { key: 'quantity', label: 'Quantity', type: 'number', value: initialState.quantity }
+                ];
+            }
+
+            const fieldHTML = fields.map(f => {
+                let input = '';
+                if (f.type === 'select') {
+                    input = `<select id="modal-${f.key}" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-violet-500 focus:border-violet-500">
+                        ${f.options.map(o => `<option value="${o}" ${f.value === o ? 'selected' : ''}>${o}</option>`).join('')}
+                    </select>`;
+                } else {
+                    input = `<input type="${f.type}" id="modal-${f.key}" value="${f.value}" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-violet-500 focus:border-violet-500" required>`;
+                }
+                return `<label class="block mb-4">
+                    <span class="text-sm font-medium text-gray-700">${f.label}:</span>
+                    ${input}
+                </label>`;
+            }).join('');
+
+
+            modalContainer.innerHTML = `
+                <div id="new-record-modal" class="modal fixed inset-0 bg-gray-900 bg-opacity-70 flex items-center justify-center z-50 p-4">
+                    <div class="bg-white rounded-xl app-shadow max-w-lg w-full p-6">
+                        <div class="flex justify-between items-center mb-4">
+                            <h2 class="text-xl font-bold">${title}</h2>
+                            <button onclick="closeModal('new-record-modal')" class="text-gray-500 hover:text-gray-700">
+                                ${getIcon('X', 'w-6 h-6')}
+                            </button>
+                        </div>
+                        <form onsubmit="event.preventDefault(); ${submitHandler};">
+                            ${fieldHTML}
+                            <button type="submit" class="w-full text-white font-semibold py-3 px-4 rounded-xl transition duration-150 mt-4 nav-link-purple" style="background-color: var(--light-purple);">
+                                Create Record
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            `;
+            document.getElementById('new-record-modal').classList.remove('hidden');
+        };
+
+        window.handleNewGenericRecord = (e, collection) => {
+            e.preventDefault();
+            const formElements = Array.from(e.target.elements).filter(el => el.id && el.id.startsWith('modal-'));
+            const newRecord = {};
+            formElements.forEach(el => {
+                const key = el.id.replace('modal-', '');
+                newRecord[key] = el.value;
+                if (el.type === 'number') {
+                    newRecord[key] = Number(el.value);
+                }
+            });
+            addRecord(collection, newRecord);
+            closeModal('new-record-modal');
+        };
+        
+        window.showStatusModal = (el) => {
+            const id = el.dataset.id;
+            const collection = el.dataset.collection;
+            const currentStatus = el.textContent.trim();
+            const statuses = ['Ready', 'Waiting', 'Done'];
+
+            const statusOptionsHTML = statuses.map(s => `
+                <button onclick="handleStatusUpdate('${collection}', '${id}', '${s}')"
+                    class="w-full text-left px-4 py-2 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors ${s === currentStatus ? 'bg-indigo-50 text-indigo-700 font-semibold' : ''}"
+                >
+                    ${s}
+                </button>
+            `).join('');
+
+            modalContainer.innerHTML = `
+                <div id="status-modal" class="modal fixed inset-0 bg-gray-900 bg-opacity-70 flex items-center justify-center z-50 p-4">
+                    <div class="bg-white rounded-xl app-shadow max-w-xs w-full p-4">
+                        <div class="flex justify-between items-center mb-3">
+                            <h2 class="text-lg font-bold">Update Status</h2>
+                            <button onclick="closeModal('status-modal')" class="text-gray-500 hover:text-gray-700">
+                                ${getIcon('X', 'w-5 h-5')}
+                            </button>
+                        </div>
+                        <div class="space-y-1">
+                            ${statusOptionsHTML}
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.getElementById('status-modal').classList.remove('hidden');
+        };
+
+        window.handleStatusUpdate = (collection, id, newStatus) => {
+             updateRecord(collection, id, 'status', newStatus);
+             closeModal('status-modal');
+        };
+
+        window.closeModal = (id) => {
+            const modal = document.getElementById(id);
+            if (modal) {
+                modal.classList.add('hidden');
+            }
+        };
+
+
+        // --- 5. ROUTING LOGIC ---
+
+        const router = () => {
+            const hash = window.location.hash || '#dashboard';
+            
+            // Hide loading screen immediately since there's no async loading
+            loadingOverlay.classList.add('hidden');
+
+            // Force to dashboard if no hash is present, or if it's pointing to old auth pages
+            if (hash === '' || hash === '#login' || hash === '#signup') {
+                 window.location.hash = '#dashboard';
+                 return;
+            }
+
+            switch (hash) {
+                case '#dashboard':
+                    renderDashboardPage();
+                    break;
+                case '#operations/receipts':
+                    renderReceiptsPage();
+                    break;
+                case '#operations/deliveries':
+                    renderDeliveriesPage();
+                    break;
+                case '#stock':
+                    renderStockPage();
+                    break;
+                case '#move-history':
+                    renderMoveHistoryPage();
+                    break;
+                case '#settings/warehouse':
+                    renderWarehousePage();
+                    break;
+                case '#settings/location':
+                    renderLocationPage();
+                    break;
+                default:
+                    window.location.hash = '#dashboard';
+                    break;
+            }
+        };
+
+        // Attach router to hash change event
+        window.addEventListener('hashchange', router);
+
+        // Initial application setup (start immediately)
+        window.onload = () => {
+             // Ensure the initial hash is set to load the content
+            if (!window.location.hash) {
+                window.location.hash = '#dashboard';
+            }
+            router();
+        };
+
+    </script>
+</body>
+</html>
