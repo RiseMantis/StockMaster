@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>App Login</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f7f7f7;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+    }
+    .container {
+      display: flex;
+      gap: 40px;
+    }
+    .card {
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 2px 12px #ddd;
+      padding: 32px;
+      width: 340px;
+      text-align: center;
+    }
+    .logo {
+      width: 70px;
+      height: 70px;
+      background: #e0e0e0;
+      border-radius: 12px;
+      margin: 0 auto 20px auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 30px;
+      color: #888;
+    }
+    .input-group {
+      margin-bottom: 16px;
+      text-align: left;
+    }
+    .input-group label {
+      display: block;
+      margin-bottom: 6px;
+      font-weight: 600;
+      font-size: 14px;
+    }
+    .input-group input {
+      width: 100%;
+      padding: 8px 10px;
+      border-radius: 6px;
+      border: 1px solid #bbb;
+      font-size: 15px;
+      outline: none;
+      transition: 0.2s;
+    }
+    .input-group input:focus {
+      border-color: #007bff;
+    }
+    button {
+      width: 100%;
+      background: #007bff;
+      color: #fff;
+      font-size: 17px;
+      padding: 10px 0;
+      border: none;
+      border-radius: 6px;
+      margin-top: 8px;
+      cursor: pointer;
+      transition: background 0.2s;
+      font-weight: bold;
+    }
+    button:hover {
+      background: #0056b3;
+    }
+    .links {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 10px;
+      font-size: 13px;
+    }
+    .links a {
+      color: #007bff;
+      text-decoration: none;
+    }
+    .links a:hover {
+      text-decoration: underline;
+    }
+    .divider {
+      height: 60px;
+      width: 2px;
+      background: #ddd;
+      margin: auto 24px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Login Card -->
+    <div class="card">
+      <div class="logo">
+        <!-- Replace below with your logo image: -->
+        <span>Logo</span>
+      </div>
+      <form>
+        <div class="input-group">
+          <label for="loginId">Login Id</label>
+          <input type="text" id="loginId" name="loginId" placeholder="Enter Login ID">
+        </div>
+        <div class="input-group">
+          <label for="password">Password</label>
+          <input type="password" id="password" name="password" placeholder="Enter Password">
+        </div>
+        <button type="submit">SIGN IN</button>
+        <div class="links">
+          <a href="#">Forgot Password?</a>
+          <a href="#">Sign Up</a>
+        </div>
+      </form>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- Sign Up Card -->
+    <div class="card">
+      <div class="logo">
+        <!-- Replace below with your logo image: -->
+        <span>Logo</span>
+      </div>
+      <form>
+        <div class="input-group">
+          <label for="signupLoginId">Enter Login Id</label>
+          <input type="text" id="signupLoginId" name="signupLoginId" placeholder="6-12 characters, unique">
+        </div>
+        <div class="input-group">
+          <label for="emailId">Enter Email Id</label>
+          <input type="email" id="emailId" name="emailId" placeholder="Enter valid email">
+        </div>
+        <div class="input-group">
+          <label for="signupPassword">Enter Password</label>
+          <input type="password" id="signupPassword" name="signupPassword" placeholder="At least 8 chars, special + upper + lower">
+        </div>
+        <div class="input-group">
+          <label for="rePassword">Re-Enter Password</label>
+          <input type="password" id="rePassword" name="rePassword" placeholder="Repeat your password">
+        </div>
+        <button type="submit">SIGN UP</button>
+      </form>
+    </div>
+  </div>
+</body>
+</html>
